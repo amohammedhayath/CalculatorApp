@@ -7,6 +7,10 @@ import androidx.activity.viewModels
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -14,9 +18,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,13 +43,11 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.shaiknayab.calculatorapp.ui.theme.CalculatorAppTheme
 import kotlin.system.exitProcess
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalTextInputService
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.withStyle
+
 
 class MainActivity : ComponentActivity() {
     private val vm: CalculatorViewModel by viewModels()
@@ -190,28 +192,36 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 }
                 val cursorPosition by viewModel.cursorPosition.collectAsState()
                 
-                // Sync TextFieldValue with ViewModel state
-                val textFieldValue = TextFieldValue(
-                    text = mainText,
-                    selection = TextRange(cursorPosition)
-                )
-
-                // FocusRequester to ensure cursor is visible
-                val focusRequester = remember { FocusRequester() }
-                LaunchedEffect(Unit) {
-                    focusRequester.requestFocus()
+                // Only show cursor when editing (no result), and clamp to text length
+                val showCursor = res.isEmpty()
+                val actualCursorPos = if (showCursor) {
+                    cursorPosition.coerceIn(0, mainText.length)
+                } else {
+                    mainText.length // Put cursor at end when showing result
                 }
 
-                    // Suppress keyboard
-                CompositionLocalProvider(
-                    LocalTextInputService provides null
+                // Create TextFieldValue for BasicTextField
+                val textFieldValue = TextFieldValue(
+                    text = mainText,
+                    selection = TextRange(actualCursorPos)
+                )
+
+                // FocusRequester to keep cursor visible
+                val focusRequester = remember { FocusRequester() }
+                LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
+                // BasicTextField (readOnly) with visible cursor and vertical scroll
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
                 ) {
                     BasicTextField(
                         value = textFieldValue,
-                        onValueChange = { newValue ->
-                            // Only update cursor position, ignore text changes from system keyboard if any
-                            viewModel.updateCursor(newValue.selection.start)
-                        },
+                        onValueChange = { /* readOnly, ignore */ },
+                        readOnly = true,
+                        cursorBrush = SolidColor(theme.buttonOp),
                         textStyle = androidx.compose.ui.text.TextStyle(
                             fontSize = dynamicFontSize,
                             fontWeight = FontWeight.Light,
@@ -219,8 +229,6 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                             textAlign = TextAlign.End,
                             lineHeight = dynamicFontSize * 1.2f
                         ),
-                        cursorBrush = SolidColor(theme.buttonOp),
-                        readOnly = true, // Prevent system keyboard from showing
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -240,7 +248,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
         ) {
             val rows = if (!isExpanded) {
                 listOf(
-                    listOf("< >", "%", "÷", "⌫"),
+                    listOf("</>", "%", "÷", "⌫"),
                     listOf("7", "8", "9", "×"),
                     listOf("4", "5", "6", "−"),
                     listOf("1", "2", "3", "+"),
@@ -248,7 +256,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 )
             } else {
                 listOf(
-                    listOf("< >", "%", "÷", "⌫"),
+                    listOf("</>", "%", "÷", "⌫"),
                     listOf("sin", "7", "8", "9"),
                     listOf("cos", "4", "5", "6"),
                     listOf("tan", "1", "2", "3"),
@@ -264,7 +272,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 ) {
                     for (label in row) {
                         val (btnColor, txtColor) = when (label) {
-                            in listOf("< >", "( )", "%", "⌫") -> theme.buttonFunc to theme.textPrimary
+                            in listOf("</>", "( )", "%", "⌫") -> theme.buttonFunc to theme.textPrimary
                             in listOf("÷", "×", "−", "+", "=") -> theme.buttonOp to Color.White
                             in listOf("sin", "cos", "tan", "log", "√") -> theme.buttonNum.copy(alpha=0.8f) to theme.textPrimary
                             else -> theme.buttonNum to theme.textPrimary
@@ -287,7 +295,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                         ) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             when (label) {
-                                "< >" -> isExpanded = !isExpanded
+                                "</>" -> isExpanded = !isExpanded
                                 "( )" -> viewModel.toggleParenthesis()
                                 "%" -> viewModel.appendToExpression("%")
                                 "÷" -> viewModel.appendToExpression("/")
