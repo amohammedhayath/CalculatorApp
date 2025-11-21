@@ -355,33 +355,127 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         val parts = entry.split(" = ")
         if (parts.size != 2) return listOf("Invalid entry")
         
-        val expr = parts[0].replace("×", "*").replace("−", "-")
+        val originalExpr = parts[0]
+        val expr = originalExpr.replace("×", "*").replace("−", "-")
         val steps = mutableListOf<String>()
         
-        steps.add("Original: $expr")
-        
         try {
-            // This is a simplified step-by-step breakdown
-            // For a full BODMAS breakdown, we'd need to track each operation
-            val tokens = tokenize(expr)
-            
-            // Show tokenization
-            steps.add("Tokens: ${tokens.joinToString(" ")}")
-            
-            // Show final result
-            val result = evaluateExpression(expr)
-            val formattedResult = if (result % 1.0 == 0.0) {
-                result.toLong().toString()
-            } else {
-                result.toString()
-            }
-            steps.add("Result: $formattedResult")
+            // Generate clean step-by-step BODMAS breakdown
+            val detailedSteps = evaluateWithSteps(expr)
+            steps.addAll(detailedSteps)
             
         } catch (e: Exception) {
             steps.add("Error: ${e.message}")
         }
         
         return steps
+    }
+    
+    private fun evaluateWithSteps(expr: String): List<String> {
+        val steps = mutableListOf<String>()
+        var currentExpr = expr
+        
+        // Step 1: Handle functions and square roots
+        var changed = true
+        while (changed) {
+            changed = false
+            val funcPattern = Regex("(sin|cos|tan|log|ln|√)\\(([^()]+)\\)")
+            val match = funcPattern.find(currentExpr)
+            if (match != null) {
+                val func = match.groupValues[1]
+                val arg = match.groupValues[2].toDoubleOrNull() ?: 0.0
+                val result = evalFunc(func, arg)
+                val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format("%.4f", result)
+                currentExpr = currentExpr.replaceFirst(match.value, formatted)
+                steps.add("${match.value} = $formatted")
+                changed = true
+            }
+        }
+        
+        // Step 2: Handle parentheses (innermost first)
+        changed = true
+        while (changed) {
+            changed = false
+            val parenPattern = Regex("\\(([^()]+)\\)")
+            val match = parenPattern.find(currentExpr)
+            if (match != null) {
+                val innerExpr = match.groupValues[1]
+                val result = evaluateSimpleExpression(innerExpr)
+                val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format("%.4f", result)
+                currentExpr = currentExpr.replaceFirst(match.value, formatted)
+                steps.add("($innerExpr) = $formatted")
+                changed = true
+            }
+        }
+        
+        // Step 3: Evaluate multiplication and division, then addition and subtraction
+        val finalSteps = evaluateSimpleExpressionWithSteps(currentExpr)
+        steps.addAll(finalSteps)
+        
+        return steps
+    }
+    
+    private fun evaluateSimpleExpressionWithSteps(expr: String): List<String> {
+        val steps = mutableListOf<String>()
+        var currentExpr = expr.replace(" ", "")
+        
+        // First pass: Handle * and / (left to right)
+        var changed = true
+        while (changed) {
+            changed = false
+            val mulDivPattern = Regex("([\\d.]+)\\s*([*/])\\s*([\\d.]+)")
+            val match = mulDivPattern.find(currentExpr)
+            if (match != null) {
+                val a = match.groupValues[1].toDouble()
+                val op = match.groupValues[2]
+                val b = match.groupValues[3].toDouble()
+                val result = if (op == "*") a * b else a / b
+                val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format("%.4f", result)
+                val opDisplay = if (op == "*") "×" else op
+                
+                // Format the numbers nicely
+                val aFormatted = if (a % 1.0 == 0.0) a.toLong().toString() else a.toString()
+                val bFormatted = if (b % 1.0 == 0.0) b.toLong().toString() else b.toString()
+                
+                steps.add("$aFormatted $opDisplay $bFormatted = $formatted")
+                currentExpr = currentExpr.replaceFirst(match.value, formatted)
+                changed = true
+            }
+        }
+        
+        // Second pass: Handle + and - (left to right)
+        changed = true
+        while (changed) {
+            changed = false
+            val addSubPattern = Regex("([\\d.]+)\\s*([+\\-])\\s*([\\d.]+)")
+            val match = addSubPattern.find(currentExpr)
+            if (match != null) {
+                val a = match.groupValues[1].toDouble()
+                val op = match.groupValues[2]
+                val b = match.groupValues[3].toDouble()
+                val result = if (op == "+") a + b else a - b
+                val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format("%.4f", result)
+                
+                // Format the numbers nicely
+                val aFormatted = if (a % 1.0 == 0.0) a.toLong().toString() else a.toString()
+                val bFormatted = if (b % 1.0 == 0.0) b.toLong().toString() else b.toString()
+                
+                steps.add("$aFormatted $op $bFormatted = $formatted")
+                currentExpr = currentExpr.replaceFirst(match.value, formatted)
+                changed = true
+            }
+        }
+        
+        return steps
+    }
+    
+    private fun evaluateSimpleExpression(expr: String): Double {
+        // Simple evaluation without steps for parentheses content
+        return try {
+            evaluateExpression(expr)
+        } catch (e: Exception) {
+            0.0
+        }
     }
 
     private fun loadHistory() {
