@@ -9,6 +9,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -159,28 +160,6 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp, vertical = 16.dp)
         ) {
-
-            // Toggle Button
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(bottom = 8.dp)
-                    .clip(CircleShape)
-                    .clickable {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        isExpanded = !isExpanded
-                    }
-                    .background(theme.buttonFunc.copy(alpha = 0.5f))
-                    .padding(10.dp)
-            ) {
-                Text(
-                    text = if (isExpanded) "> <" else "< >",
-                    color = theme.textPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
             // Results
             val verticalScrollState = rememberScrollState()
             LaunchedEffect(res, expr) {
@@ -261,19 +240,20 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
         ) {
             val rows = if (!isExpanded) {
                 listOf(
-                    listOf("AC", "( )", "%", "÷"),
+                    listOf("< >", "%", "÷", "⌫"),
                     listOf("7", "8", "9", "×"),
                     listOf("4", "5", "6", "−"),
                     listOf("1", "2", "3", "+"),
-                    listOf("0", ".", "⌫", "=")
+                    listOf("0", ".", "( )", "=")
                 )
             } else {
                 listOf(
-                    listOf("√", "AC", "( )", "%", "÷"),
-                    listOf("sin", "7", "8", "9", "×"),
-                    listOf("cos", "4", "5", "6", "−"),
-                    listOf("tan", "1", "2", "3", "+"),
-                    listOf("log", "0", ".", "⌫", "=")
+                    listOf("< >", "%", "÷", "⌫"),
+                    listOf("sin", "7", "8", "9"),
+                    listOf("cos", "4", "5", "6"),
+                    listOf("tan", "1", "2", "3"),
+                    listOf("log", "0", ".", "( )"),
+                    listOf("√", "×", "−", "+", "=")
                 )
             }
 
@@ -284,7 +264,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 ) {
                     for (label in row) {
                         val (btnColor, txtColor) = when (label) {
-                            in listOf("AC", "( )", "%") -> theme.buttonFunc to theme.textPrimary
+                            in listOf("< >", "( )", "%", "⌫") -> theme.buttonFunc to theme.textPrimary
                             in listOf("÷", "×", "−", "+", "=") -> theme.buttonOp to Color.White
                             in listOf("sin", "cos", "tan", "log", "√") -> theme.buttonNum.copy(alpha=0.8f) to theme.textPrimary
                             else -> theme.buttonNum to theme.textPrimary
@@ -297,11 +277,17 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                             backgroundColor = btnColor,
                             textColor = finalTxtColor,
                             isSmall = isExpanded,
-                            modifier = Modifier.weight(1f).fillMaxHeight()
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                            onLongClick = if (label == "⌫") {
+                                {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    viewModel.clearAll()
+                                }
+                            } else null
                         ) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             when (label) {
-                                "AC" -> viewModel.clearAll()
+                                "< >" -> isExpanded = !isExpanded
                                 "( )" -> viewModel.toggleParenthesis()
                                 "%" -> viewModel.appendToExpression("%")
                                 "÷" -> viewModel.appendToExpression("/")
@@ -376,6 +362,7 @@ fun CalculatorButton(
     textColor: Color,
     modifier: Modifier = Modifier,
     isSmall: Boolean = false,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val animateBg by animateColorAsState(targetValue = backgroundColor, animationSpec = tween(300))
@@ -385,7 +372,16 @@ fun CalculatorButton(
         modifier = modifier
             .clip(RoundedCornerShape(35))
             .background(animateBg)
-            .clickable { onClick() },
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
+                } else {
+                    Modifier.clickable { onClick() }
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(
