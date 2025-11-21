@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme. -->
+    <style name="Theme.CalculatorApp" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Customize your theme here. -->
+
+        <!-- CRITICAL: Sets the initial screen background to Black to match your app -->
+        <item name="android:windowBackground">@color/black</item>
+
+        <!-- Status bar color -->
+        <item name="android:statusBarColor">@color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
