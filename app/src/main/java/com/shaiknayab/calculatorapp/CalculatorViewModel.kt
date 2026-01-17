@@ -80,6 +80,9 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
     private val _history = MutableStateFlow(arrayListOf<String>())
     val history: StateFlow<ArrayList<String>> = _history
 
+    private val _liveResult = MutableStateFlow("")
+    val liveResult: StateFlow<String> = _liveResult
+
     private val _cursorPosition = MutableStateFlow(0)
     val cursorPosition: StateFlow<Int> = _cursorPosition
 
@@ -139,6 +142,7 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
                 val newExpr = currentExpr.substring(0, cursorPos - 1) + s + currentExpr.substring(cursorPos)
                 _expression.value = newExpr
                 _cursorPosition.value = cursorPos // Keep cursor at same position
+                calculateLive()
                 return
             }
         }
@@ -167,6 +171,7 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         val newExpr = currentExpr.substring(0, cursorPos) + s + currentExpr.substring(cursorPos)
         _expression.value = newExpr
         _cursorPosition.value = cursorPos + s.length
+        calculateLive()
     }
 
     fun backspace() {
@@ -197,18 +202,22 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         
         // Clear result when editing
         _result.value = ""
+        calculateLive()
     }
 
     fun clearAll() {
         _expression.value = ""
         _result.value = ""
+        _liveResult.value = ""
         _cursorPosition.value = 0
     }
 
     fun overwriteExpression(expr: String) {
         _expression.value = expr
         _result.value = ""
+        _liveResult.value = ""
         _cursorPosition.value = expr.length
+        calculateLive()
     }
 
     fun toggleParenthesis() {
@@ -266,6 +275,45 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
             
         } catch (e: Exception) {
             _result.value = "Error"
+        }
+    }
+
+    private fun calculateLive() {
+        val expr = _expression.value
+        if (expr.isEmpty()) {
+            _liveResult.value = ""
+            return
+        }
+        
+        try {
+            // Convert × to * for calculation
+            var evalExpr = expr.replace("×", "*").replace("−", "-")
+            
+            // Remove trailing operators (e.g., 6-6- -> 6-6)
+            evalExpr = removeTrailingOperators(evalExpr)
+            
+            if (evalExpr.isEmpty()) {
+                _liveResult.value = ""
+                return
+            }
+            
+            // Resolve business percentages logic if needed
+            // Note: In calculate() we resolve them. Here we should too.
+            evalExpr = resolveBusinessPercentages(evalExpr)
+            
+            val result = evaluateExpression(evalExpr)
+            
+            val formattedResult = if (result % 1.0 == 0.0) {
+                result.toLong().toString()
+            } else {
+                val rounded = (result * 10000000000).roundToLong() / 10000000000.0
+                rounded.toString()
+            }
+            
+            _liveResult.value = formattedResult
+        } catch (e: Exception) {
+            // Silently ignore errors during live calculation
+            _liveResult.value = ""
         }
     }
 

@@ -98,6 +98,7 @@ class MainActivity : ComponentActivity() {
 fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHistory: () -> Unit) {
     val expr by viewModel.expression.collectAsState()
     val res by viewModel.result.collectAsState()
+    val liveRes by viewModel.liveResult.collectAsState()
     val haptic = LocalHapticFeedback.current
     var isExpanded by remember { mutableStateOf(false) }
 
@@ -261,8 +262,27 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester),
-                        maxLines = Int.MAX_VALUE
                     )
+                }
+
+                // Live Result (below expression, only when typing)
+                if (res.isEmpty() && liveRes.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Text(
+                            text = liveRes,
+                            fontSize = 40.sp,
+                            color = theme.textSecondary,
+                            textAlign = TextAlign.End,
+                            lineHeight = 44.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = 1, // Keep live result compact
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
