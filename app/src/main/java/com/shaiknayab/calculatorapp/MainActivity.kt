@@ -37,6 +37,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.compose.NavHost
@@ -50,6 +51,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.withStyle
+import androidx.compose.foundation.layout.systemBarsPadding
 
 
 class MainActivity : ComponentActivity() {
@@ -76,7 +78,13 @@ class MainActivity : ComponentActivity() {
                             CalculatorScreen(vm, currentTheme) { navController.navigate("history") }
                         }
                         composable("history") {
-                            HistoryScreen(vm, currentTheme) { navController.popBackStack() }
+                            HistoryScreen(vm, currentTheme,
+                                onBack = { navController.popBackStack() },
+                                onReuse = { expr ->
+                                    vm.overwriteExpression(expr)
+                                    navController.popBackStack()
+                                }
+                            )
                         }
                     }
                 }
@@ -98,12 +106,15 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
     var showThemeDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(bottom = 16.dp)) {
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .systemBarsPadding()
+        .padding(bottom = 16.dp)) {
         // Top Bar Section
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 48.dp, start = 16.dp, end = 16.dp)
+                .padding(top = 8.dp, start = 16.dp, end = 16.dp)
         ) {
             // Left: History
             IconButton(
@@ -168,8 +179,39 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
             // Results
             val verticalScrollState = rememberScrollState()
             LaunchedEffect(res, expr) {
-                verticalScrollState.animateScrollTo(verticalScrollState.maxValue)
+                kotlinx.coroutines.delay(50) // Small delay for layout
+                if (verticalScrollState.maxValue > 0) {
+                    verticalScrollState.animateScrollTo(verticalScrollState.maxValue)
+                }
             }
+            
+            val mainText = res.ifEmpty { expr.ifEmpty { "0" } }
+            val dynamicFontSize = when {
+                mainText.length > 15 -> 32.sp
+                mainText.length > 10 -> 48.sp
+                mainText.length > 7 -> 60.sp
+                else -> 72.sp
+            }
+            val cursorPosition by viewModel.cursorPosition.collectAsState()
+            
+            // Only show cursor when editing (no result), and clamp to text length
+            val showCursor = res.isEmpty()
+            val actualCursorPos = if (showCursor) {
+                cursorPosition.coerceIn(0, mainText.length)
+            } else {
+                mainText.length // Put cursor at end when showing result
+            }
+
+            // Create TextFieldValue for BasicTextField
+            val textFieldValue = TextFieldValue(
+                text = mainText,
+                selection = TextRange(actualCursorPos)
+            )
+
+            // FocusRequester to keep cursor visible
+            val focusRequester = remember { FocusRequester() }
+            LaunchedEffect(Unit) { focusRequester.requestFocus() }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -177,52 +219,36 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = if(res.isNotEmpty()) expr else "",
-                    fontSize = 32.sp,
-                    color = theme.textSecondary,
-                    textAlign = TextAlign.End,
-                    lineHeight = 36.sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                val mainText = res.ifEmpty { expr.ifEmpty { "0" } }
-                val dynamicFontSize = when {
-                    mainText.length > 15 -> 32.sp
-                    mainText.length > 10 -> 48.sp
-                    mainText.length > 7 -> 60.sp
-                    else -> 72.sp
+                // Expression text (above result)
+                if (res.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Text(
+                            text = expr,
+                            fontSize = 32.sp,
+                            color = theme.textSecondary,
+                            textAlign = TextAlign.End,
+                            lineHeight = 36.sp,
+                            modifier = Modifier.fillMaxWidth(),
+                            maxLines = Int.MAX_VALUE,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
-                val cursorPosition by viewModel.cursorPosition.collectAsState()
                 
-                // Only show cursor when editing (no result), and clamp to text length
-                val showCursor = res.isEmpty()
-                val actualCursorPos = if (showCursor) {
-                    cursorPosition.coerceIn(0, mainText.length)
-                } else {
-                    mainText.length // Put cursor at end when showing result
-                }
-
-                // Create TextFieldValue for BasicTextField
-                val textFieldValue = TextFieldValue(
-                    text = mainText,
-                    selection = TextRange(actualCursorPos)
-                )
-
-                // FocusRequester to keep cursor visible
-                val focusRequester = remember { FocusRequester() }
-                LaunchedEffect(Unit) { focusRequester.requestFocus() }
-
-                // BasicTextField (readOnly) with visible cursor and vertical scroll
+                // Main result/expression text
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState())
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterEnd
                 ) {
                     BasicTextField(
                         value = textFieldValue,
-                        onValueChange = { /* readOnly, ignore */ },
+                        onValueChange = { tfv ->
+                            viewModel.updateCursor(tfv.selection.start)
+                        },
                         readOnly = true,
                         cursorBrush = SolidColor(theme.buttonOp),
                         textStyle = androidx.compose.ui.text.TextStyle(
@@ -234,7 +260,8 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .focusRequester(focusRequester)
+                            .focusRequester(focusRequester),
+                        maxLines = Int.MAX_VALUE
                     )
                 }
             }
@@ -251,7 +278,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
         ) {
             val rows = if (!isExpanded) {
                 listOf(
-                    listOf("</>", "%", "÷", "⌫"),
+                    listOf("↔", "%", "÷", "⌫"),
                     listOf("7", "8", "9", "×"),
                     listOf("4", "5", "6", "−"),
                     listOf("1", "2", "3", "+"),
@@ -259,7 +286,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 )
             } else {
                 listOf(
-                    listOf("</>", "%", "÷", "⌫"),
+                    listOf("↔", "%", "÷", "⌫"),
                     listOf("sin", "7", "8", "9"),
                     listOf("cos", "4", "5", "6"),
                     listOf("tan", "1", "2", "3"),
@@ -275,7 +302,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 ) {
                     for (label in row) {
                         val (btnColor, txtColor) = when (label) {
-                            in listOf("</>", "( )", "%", "⌫") -> theme.buttonFunc to theme.textPrimary
+                            in listOf("↔", "( )", "%", "⌫") -> theme.buttonFunc to theme.textPrimary
                             in listOf("÷", "×", "−", "+", "=") -> theme.buttonOp to Color.White
                             in listOf("sin", "cos", "tan", "log", "√") -> theme.buttonNum.copy(alpha=0.8f) to theme.textPrimary
                             else -> theme.buttonNum to theme.textPrimary
@@ -298,7 +325,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                         ) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             when (label) {
-                                "</>" -> isExpanded = !isExpanded
+                                "↔" -> isExpanded = !isExpanded
                                 "( )" -> viewModel.toggleParenthesis()
                                 "%" -> viewModel.appendToExpression("%")
                                 "÷" -> viewModel.appendToExpression("/")
@@ -404,12 +431,13 @@ fun CalculatorButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun HistoryScreen(viewModel: CalculatorViewModel, theme: AppTheme, onBack: () -> Unit) {
+fun HistoryScreen(viewModel: CalculatorViewModel, theme: AppTheme, onBack: () -> Unit, onReuse: (String) -> Unit) {
     val items by viewModel.history.collectAsState()
     var selectedHistoryItem by remember { mutableStateOf<String?>(null) }
     var stepDetails by remember { mutableStateOf<List<String>>(emptyList()) }
+    val haptic = LocalHapticFeedback.current
 
     if (selectedHistoryItem != null) {
         AlertDialog(
@@ -469,7 +497,11 @@ fun HistoryScreen(viewModel: CalculatorViewModel, theme: AppTheme, onBack: () ->
             )
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .padding(padding)
+            .padding(16.dp)) {
             if (items.isEmpty()) {
                 Text("No history", modifier = Modifier.align(Alignment.Center), color = theme.textSecondary, fontSize = 18.sp)
             } else {
@@ -477,10 +509,19 @@ fun HistoryScreen(viewModel: CalculatorViewModel, theme: AppTheme, onBack: () ->
                     items(items) { entry ->
                         Surface(
                             color = Color.Transparent,
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable {
-                                stepDetails = viewModel.calculateSteps(entry)
-                                selectedHistoryItem = entry
-                            }
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(
+                                onClick = {
+                                    stepDetails = viewModel.calculateSteps(entry)
+                                    selectedHistoryItem = entry
+                                },
+                                onLongClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val parts = entry.split(" = ")
+                                    if (parts.isNotEmpty()) {
+                                        onReuse(parts[0])
+                                    }
+                                }
+                            )
                         ) {
                             Column(modifier = Modifier.padding(vertical = 8.dp)) {
                                 Text(entry, color = theme.textPrimary, fontSize = 24.sp, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
