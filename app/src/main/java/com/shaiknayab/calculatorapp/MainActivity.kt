@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.layout.systemBarsPadding
@@ -100,7 +101,10 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
     val res by viewModel.result.collectAsState()
     val liveRes by viewModel.liveResult.collectAsState()
     val haptic = LocalHapticFeedback.current
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     var isExpanded by remember { mutableStateOf(false) }
+    var isTextFieldFocused by remember { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
     // UI States
     var showMenu by remember { mutableStateOf(false) }
@@ -110,7 +114,11 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
     Column(modifier = Modifier
         .fillMaxSize()
         .systemBarsPadding()
-        .padding(bottom = 16.dp)) {
+        .padding(bottom = 16.dp)
+        .clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null
+        ) { focusManager.clearFocus() }) {
         // Top Bar Section
         Box(
             modifier = Modifier
@@ -184,6 +192,7 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                 if (verticalScrollState.maxValue > 0) {
                     verticalScrollState.animateScrollTo(verticalScrollState.maxValue)
                 }
+                keyboardController?.hide()
             }
             
             val mainText = res.ifEmpty { expr.ifEmpty { "0" } }
@@ -211,7 +220,6 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
 
             // FocusRequester to keep cursor visible
             val focusRequester = remember { FocusRequester() }
-            LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
             Column(
                 modifier = Modifier
@@ -245,24 +253,37 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.CenterEnd
                 ) {
-                    BasicTextField(
-                        value = textFieldValue,
-                        onValueChange = { tfv ->
-                            viewModel.updateCursor(tfv.selection.start)
-                        },
-                        readOnly = true,
-                        cursorBrush = SolidColor(theme.buttonOp),
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            fontSize = dynamicFontSize,
-                            fontWeight = FontWeight.Light,
-                            color = theme.textPrimary,
-                            textAlign = TextAlign.End,
-                            lineHeight = dynamicFontSize * 1.2f
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester),
-                    )
+                    @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+                    androidx.compose.ui.platform.InterceptPlatformTextInput(
+                        interceptor = { _, _ ->
+                            kotlinx.coroutines.awaitCancellation()
+                        }
+                    ) {
+                        BasicTextField(
+                            value = textFieldValue,
+                            onValueChange = { tfv ->
+                                viewModel.updateCursor(tfv.selection.start)
+                            },
+                            readOnly = false,
+                            cursorBrush = if (isTextFieldFocused && res.isEmpty()) SolidColor(theme.buttonOp) else SolidColor(Color.Transparent),
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                fontSize = dynamicFontSize,
+                                fontWeight = FontWeight.Light,
+                                color = theme.textPrimary,
+                                textAlign = TextAlign.End,
+                                lineHeight = dynamicFontSize * 1.2f
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { focusState ->
+                                    isTextFieldFocused = focusState.isFocused
+                                    if (focusState.isFocused) {
+                                        keyboardController?.hide()
+                                    }
+                                },
+                        )
+                    }
                 }
 
                 // Live Result (below expression, only when typing)
@@ -348,12 +369,15 @@ fun CalculatorScreen(viewModel: CalculatorViewModel, theme: AppTheme, onOpenHist
                                 "↔" -> isExpanded = !isExpanded
                                 "( )" -> viewModel.toggleParenthesis()
                                 "%" -> viewModel.appendToExpression("%")
-                                "÷" -> viewModel.appendToExpression("/")
+                                "÷" -> viewModel.appendToExpression("÷")
                                 "×" -> viewModel.appendToExpression("×") // Send exact symbol
                                 "−" -> viewModel.appendToExpression("-")
                                 "+" -> viewModel.appendToExpression("+")
                                 "⌫" -> viewModel.backspace()
-                                "=" -> viewModel.calculate()
+                                "=" -> {
+                                    viewModel.calculate()
+                                    focusManager.clearFocus()
+                                }
                                 "." -> viewModel.appendToExpression(".")
                                 "sin", "cos", "tan", "log", "√" -> viewModel.appendToExpression(if(label == "√") "√" else "$label(")
                                 else -> viewModel.appendToExpression(label)
@@ -486,8 +510,21 @@ fun HistoryScreen(viewModel: CalculatorViewModel, theme: AppTheme, onBack: () ->
                 }
             },
             confirmButton = {
+                TextButton(
+                    onClick = {
+                        val parts = selectedHistoryItem?.split(" = ")
+                        if (parts != null && parts.isNotEmpty()) {
+                            onReuse(parts[0])
+                        }
+                        selectedHistoryItem = null
+                    }
+                ) {
+                    Text("Reuse", color = theme.buttonOp)
+                }
+            },
+            dismissButton = {
                 TextButton(onClick = { selectedHistoryItem = null }) {
-                    Text("Close", color = theme.buttonOp)
+                    Text("Close", color = theme.textSecondary)
                 }
             }
         )

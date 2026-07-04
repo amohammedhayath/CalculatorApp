@@ -44,7 +44,7 @@ val LightTheme = AppTheme(
     name = "Clean Light",
     background = Color(0xFFF2F2F7),
     buttonNum = Color(0xFFFFFFFF),
-    buttonOp = Color(0xFFFF9F0A),
+    buttonOp = Color(0xFF007AFF),
     buttonFunc = Color(0xFFD1D1D6),
     textPrimary = Color(0xFF000000),
     textSecondary = Color.DarkGray
@@ -118,7 +118,7 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         if (_result.value.isNotEmpty()) {
             // If there's a result showing, start fresh
             // But if the new input is an operator, use the previous result as the starting number
-            if (s in listOf("+", "-", "×", "/", "%")) {
+            if (s in listOf("+", "-", "×", "÷", "%")) {
                 _expression.value = _result.value
                  // Move cursor to end
                 _cursorPosition.value = _result.value.length
@@ -134,7 +134,7 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         val cursorPos = _cursorPosition.value
         
         // Operator override logic: if last char is an operator and new input is an operator, replace it
-        val operators = listOf("+", "-", "×", "/", "%")
+        val operators = listOf("+", "-", "×", "÷")
         if (s in operators && currentExpr.isNotEmpty() && cursorPos > 0) {
             val charBeforeCursor = currentExpr.getOrNull(cursorPos - 1)?.toString()
             if (charBeforeCursor in operators) {
@@ -175,6 +175,13 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun backspace() {
+        if (_result.value.isNotEmpty()) {
+            _result.value = ""
+            _cursorPosition.value = _expression.value.length
+            calculateLive()
+            return
+        }
+        
         val currentExpr = _expression.value
         val cursorPos = _cursorPosition.value
         
@@ -245,11 +252,16 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
             val expr = _expression.value
             if (expr.isEmpty()) return
             
-            // Convert × to * for calculation
-            var evalExpr = expr.replace("×", "*").replace("−", "-")
+            // Convert × to * and ÷ to / for calculation
+            var evalExpr = expr.replace("×", "*").replace("−", "-").replace("÷", "/")
             
             // Remove trailing operators (e.g., 6-6- -> 6-6)
             evalExpr = removeTrailingOperators(evalExpr)
+            
+            if (evalExpr.isEmpty()) {
+                _result.value = "Error"
+                return
+            }
             
             // Resolve business percentages (e.g., 100+10% -> 100+(100*10/100))
             evalExpr = resolveBusinessPercentages(evalExpr)
@@ -286,8 +298,8 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         }
         
         try {
-            // Convert × to * for calculation
-            var evalExpr = expr.replace("×", "*").replace("−", "-")
+            // Convert × to * and ÷ to / for calculation
+            var evalExpr = expr.replace("×", "*").replace("−", "-").replace("÷", "/")
             
             // Remove trailing operators (e.g., 6-6- -> 6-6)
             evalExpr = removeTrailingOperators(evalExpr)
@@ -319,45 +331,47 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun resolveBusinessPercentages(expr: String): String {
         var currentExpr = expr
-        // Matches pattern: Number (A) followed by + or - followed by Number (B) and %
-        // Group 1: A (can be float, negative)
-        // Group 2: Operator (+ or -)
-        // Group 3: B (can be float)
-        val pattern = Regex("(-?[\\d.]+)\\s*([+\\-])\\s*([\\d.]+)%")
+        val pattern = Regex("([+\\-])\\s*([\\d.]+)%")
         
         while (true) {
             val match = pattern.find(currentExpr) ?: break
-            val a = match.groupValues[1].toDoubleOrNull() ?: 0.0
-            val op = match.groupValues[2]
-            val b = match.groupValues[3].toDoubleOrNull() ?: 0.0
+            val opIdx = match.range.first
+            val op = match.groupValues[1]
+            val percentVal = match.groupValues[2]
             
-            // logic: A + B% -> A + (A * B / 100)
-            val percentValue = (a * b) / 100.0
-            // We replace just the "B%" part with the calculated value, 
-            // but since we need to reconstruct the string, it's easier to replace the whole "A op B%" pattern
-            // However, we must be careful with overlapping matches or if A was part of a previous calculation.
-            // Since we iterate, replacing the first match is safe.
+            // Scan backwards from opIdx - 1 to find LHS
+            var parenCount = 0
+            var lhsStartIdx = 0
+            for (i in opIdx - 1 downTo 0) {
+                val c = currentExpr[i]
+                if (c == ')') {
+                    parenCount++
+                } else if (c == '(') {
+                    parenCount--
+                    if (parenCount < 0) {
+                        lhsStartIdx = i + 1
+                        break
+                    }
+                }
+            }
             
-            // Reconstruct: A op calculated_value
-            // e.g., 100 + 10 -> 110 (this will be evaluated later)
-            // But wait, the expression evaluator expects valid math. 
-            // 100 + 10 is valid.
-            // What if A is negative? -100 + 10% -> -100 + (-10) = -110.
+            val lhs = currentExpr.substring(lhsStartIdx, opIdx).trim()
+            val lhsSafe = if (lhs.isEmpty()) "0" else lhs
             
-            val replacement = "$a $op $percentValue"
-            currentExpr = currentExpr.replaceFirst(match.value, replacement)
+            val replacement = "($lhsSafe) $op (($lhsSafe) * $percentVal / 100)"
+            currentExpr = currentExpr.replaceRange(lhsStartIdx, match.range.last + 1, replacement)
         }
         return currentExpr
     }
 
     private fun removeTrailingOperators(expr: String): String {
-        // Remove trailing operators (+, -, *, /, ×, −) and whitespace
+        // Remove trailing operators (+, -, *, /, ×, −, ÷) and whitespace
         var result = expr.trimEnd()
         
         // Keep removing trailing operators until we hit a number, closing paren, or function
         while (result.isNotEmpty()) {
             val lastChar = result.last()
-            if (lastChar in "+-*/×−") {
+            if (lastChar in "+-*/×−÷") {
                 result = result.dropLast(1).trimEnd()
             } else {
                 break
@@ -640,7 +654,7 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         if (parts.size != 2) return listOf("Invalid entry")
         
         val originalExpr = parts[0]
-        var expr = originalExpr.replace("×", "*").replace("−", "-")
+        var expr = originalExpr.replace("×", "*").replace("−", "-").replace("÷", "/")
         
         // Remove trailing operators for step-by-step breakdown
         expr = removeTrailingOperators(expr)
@@ -667,24 +681,45 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
         currentExpr = addImplicitMultiplicationToString(currentExpr)
         
         // Step 0.5: Resolve Business Percentages (Add/Sub)
-        // We do this loop manually to record steps
         var bizChanged = true
         while (bizChanged) {
             bizChanged = false
-            val pattern = Regex("(-?[\\d.]+)\\s*([+\\-])\\s*([\\d.]+)%")
+            val pattern = Regex("([+\\-])\\s*([\\d.]+)%")
             val match = pattern.find(currentExpr)
             if (match != null) {
-                val a = match.groupValues[1].toDoubleOrNull() ?: 0.0
-                val op = match.groupValues[2]
-                val b = match.groupValues[3].toDoubleOrNull() ?: 0.0
-                val percentValue = (a * b) / 100.0
+                val opIdx = match.range.first
+                val op = match.groupValues[1]
+                val percentValStr = match.groupValues[2]
+                val percentVal = percentValStr.toDoubleOrNull() ?: 0.0
                 
-                // Format for display
+                // Scan backwards to find LHS
+                var parenCount = 0
+                var lhsStartIdx = 0
+                for (i in opIdx - 1 downTo 0) {
+                    val c = currentExpr[i]
+                    if (c == ')') {
+                        parenCount++
+                    } else if (c == '(') {
+                        parenCount--
+                        if (parenCount < 0) {
+                            lhsStartIdx = i + 1
+                            break
+                        }
+                    }
+                }
+                
+                val lhs = currentExpr.substring(lhsStartIdx, opIdx).trim()
+                val lhsSafe = if (lhs.isEmpty()) "0" else lhs
+                val lhsValue = evaluateSimpleExpression(lhsSafe)
+                val percentValue = (lhsValue * percentVal) / 100.0
+                
                 val percentFormatted = if (percentValue % 1.0 == 0.0) percentValue.toLong().toString() else String.format("%.4f", percentValue)
-                val fullReplacement = "$a $op $percentFormatted"
+                val lhsFormatted = if (lhsValue % 1.0 == 0.0) lhsValue.toLong().toString() else String.format("%.4f", lhsValue)
                 
-                steps.add("${match.value} -> $fullReplacement")
-                currentExpr = currentExpr.replaceFirst(match.value, fullReplacement)
+                steps.add("$percentValStr% of $lhsFormatted = $percentFormatted")
+                
+                val replacement = "$op $percentFormatted"
+                currentExpr = currentExpr.replaceRange(opIdx, match.range.last + 1, replacement)
                 bizChanged = true
             }
         }
@@ -805,7 +840,11 @@ class CalculatorViewModel(app: Application) : AndroidViewModel(app) {
                     a / b
                 }
                 val formatted = if (result % 1.0 == 0.0) result.toLong().toString() else String.format("%.4f", result)
-                val opDisplay = if (op == "*") "×" else op
+                val opDisplay = when (op) {
+                    "*" -> "×"
+                    "/" -> "÷"
+                    else -> op
+                }
                 
                 // Format the numbers nicely
                 val aFormatted = if (a % 1.0 == 0.0) a.toLong().toString() else a.toString()

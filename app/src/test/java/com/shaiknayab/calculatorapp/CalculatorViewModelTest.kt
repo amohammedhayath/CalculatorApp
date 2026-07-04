@@ -84,7 +84,7 @@ class CalculatorViewModelTest {
     @Test
     fun testDivision() = runTest {
         viewModel.appendToExpression("10")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.appendToExpression("2")
         viewModel.calculate()
         advanceUntilIdle()
@@ -95,7 +95,7 @@ class CalculatorViewModelTest {
     @Test
     fun testDivisionByZero() = runTest {
         viewModel.appendToExpression("10")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.appendToExpression("0")
         viewModel.calculate()
         advanceUntilIdle()
@@ -205,7 +205,7 @@ class CalculatorViewModelTest {
     fun testNegativeNumberDivision() = runTest {
         viewModel.appendToExpression("-")
         viewModel.appendToExpression("10")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.appendToExpression("2")
         viewModel.calculate()
         advanceUntilIdle()
@@ -363,7 +363,7 @@ class CalculatorViewModelTest {
         viewModel.appendToExpression("10")
         viewModel.appendToExpression("-")
         viewModel.appendToExpression("8")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.appendToExpression("2")
         viewModel.calculate()
         advanceUntilIdle()
@@ -770,7 +770,7 @@ class CalculatorViewModelTest {
     @Test
     fun testDecimalPrecision() = runTest {
         viewModel.appendToExpression("1")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.appendToExpression("3")
         viewModel.calculate()
         advanceUntilIdle()
@@ -904,11 +904,11 @@ class CalculatorViewModelTest {
 
     @Test
     fun testTrailingDivideOperator() = runTest {
-        // Test 10/2/ should evaluate to 5 (ignore trailing /)
+        // Test 10÷2÷ should evaluate to 5 (ignore trailing ÷)
         viewModel.appendToExpression("10")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.appendToExpression("2")
-        viewModel.appendToExpression("/")
+        viewModel.appendToExpression("÷")
         viewModel.calculate()
         advanceUntilIdle()
         
@@ -928,5 +928,53 @@ class CalculatorViewModelTest {
         advanceUntilIdle()
         
         assertEquals("5", viewModel.result.value)
+    }
+
+    @Test
+    fun testBusinessPercentageWithParentheses() = runTest {
+        viewModel.appendToExpression("(")
+        viewModel.appendToExpression("50")
+        viewModel.appendToExpression("+")
+        viewModel.appendToExpression("50")
+        viewModel.appendToExpression(")")
+        viewModel.appendToExpression("+")
+        viewModel.appendToExpression("10")
+        viewModel.appendToExpression("%")
+        viewModel.calculate()
+        advanceUntilIdle()
+        
+        assertEquals("110", viewModel.result.value)
+    }
+
+    @Test
+    fun testChainedBusinessPercentages() = runTest {
+        viewModel.appendToExpression("100")
+        viewModel.appendToExpression("+")
+        viewModel.appendToExpression("10")
+        viewModel.appendToExpression("%")
+        viewModel.appendToExpression("+")
+        viewModel.appendToExpression("5")
+        viewModel.appendToExpression("%")
+        viewModel.calculate()
+        advanceUntilIdle()
+        
+        assertEquals("115.5", viewModel.result.value)
+    }
+
+    @Test
+    fun testBackspaceWhenResultIsShowing() = runTest {
+        viewModel.appendToExpression("5")
+        viewModel.appendToExpression("+")
+        viewModel.appendToExpression("5")
+        viewModel.calculate()
+        advanceUntilIdle()
+        
+        assertEquals("10", viewModel.result.value)
+        assertEquals("5+5", viewModel.expression.value)
+        
+        viewModel.backspace()
+        assertEquals("", viewModel.result.value)
+        assertEquals("5+5", viewModel.expression.value)
+        assertEquals(3, viewModel.cursorPosition.value)
     }
 }
